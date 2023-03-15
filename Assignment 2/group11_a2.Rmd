@@ -1,0 +1,773 @@
+---
+title: " Experimental Design and Data Analysis - Assignment 2"
+author: "Group 11 - Björn van der Haas, Deividas Aksomaitis, Nur Başak Özer"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+```
+
+## Exercise 1: Trees
+
+```{r}
+
+treedata <- read.table(file="treeVolume.txt",header=TRUE)
+treedata$type <- as.factor(treedata$type)
+is.factor(treedata$type); is.numeric(treedata$type)
+
+```
+
+We have an unbalanced design as there are 31 observations for beech and 27 for oak for the factor type.
+
+### Section a
+
+As "type" is a factor, we can use a box plot to check for outliers:
+
+```{r}
+
+plot(treedata$type, treedata$volume)
+
+```
+
+The plot indicates that each have one outlier, so we remove these 2 rows from our dataset.
+
+```{r}
+
+treedata2 <- treedata[-c(31, 46),]
+is.factor(treedata2$type); is.numeric(treedata2$type)
+
+```
+
+As we do not take diameter and height into account, we run a one-way ANOVA:
+
+```{r}
+
+tmodel1 <- lm(volume ~ type, data=treedata2)
+anova(tmodel1)
+
+```
+
+As $p > 0.05$, we conclude that "type" does not have a significant effect on "volume".
+
+```{r}
+
+par(mfrow=c(1, 2))
+qqnorm(residuals(tmodel1)); plot(fitted(tmodel1), residuals(tmodel1))
+
+```
+
+**Diagnostics for ANOVA:** Q-Q plot indicates doubtful normality of residuals (quite skewed), therefore the ANOVA assumptions are in question. We observe no clear relationship in Fitted vs Residuals plot, which is the desired outcome.
+
+Because type only has 2 levels ("Oak" and "Beech"), we have a two-sample problem and as such a two-sample t-test would be sufficient:
+
+```{r}
+
+t.test(treedata$volume[treedata2$type == "beech"], treedata$volume[treedata2$type == "oak"])
+
+```
+
+Interestingly, we now have $p < 0.05$, which contradicts the ANOVA. The estimated volume for "beech" is 28.81 and for "oak" is 37.05. Had we run this test without removing outliers (code omitted but can easily be done with the original treedata) we would have a $p > 0.05$ with mean 30.17 for "beech" and the mean for "oak" would be 35.25.
+
+The explanation for this discrepancy might be that this test requires the assumption of normality which we can test for a t-test with a Shapiro Wilk test (only reliable if it rejects normality).
+
+```{r}
+
+shapiro.test(treedata$volume[treedata$type == "beech"]); shapiro.test(treedata$volume[treedata$type == "oak"])
+
+```
+
+$p < 0.05$ for the Shapiro-Wilk normality test for "beech", which means normality can not be assumed and a t-test is therefore not an appropriate test. (Similarly, the Shapiro-Wilk test also rejects h0 for the dataset with the removed outliers for "beech".)
+
+We can estimate the volumes for the two tree types with the aggregate function:
+
+```{r}
+
+volmean <- aggregate(volume ~ type, data = treedata2, mean)
+volmean
+
+```
+
+We obtain the results: 28.61 for "beech" and 33.97 for "oak".
+
+### Section b
+
+We now have "volume" as the numerical outcome, the factor "type", and the numerical explanatory variable "diameter". As stated above, this is an unbalanced design. We thus run an ANCOVA with the drop1 function:
+
+```{r}
+
+tancova1 = lm(volume ~ type + diameter, data = treedata2)
+drop1(tancova1, test="F")
+
+```
+
+The drop1 function allows us to interpret both p values properly. $p > 0.05$ for type, but $p < 0.05$ for diameter indicating diameter has a significant effect on volume.
+
+We can do the same for height:
+
+```{r}
+
+tancova2 = lm(volume ~ type + height, data = treedata2)
+drop1(tancova2, test="F")
+
+```
+
+$p < 0.05$ for height, indicating it has a significant effect on volume.
+
+**Diagnostics for the two ANCOVA tests:**
+
+```{r}
+
+par(mfrow=c(1, 2))
+qqnorm(residuals(tancova1)); plot(fitted(tancova1), residuals(tancova1))
+
+```
+
+```{r}
+
+par(mfrow=c(1, 2))
+qqnorm(residuals(tancova2)); plot(fitted(tancova2), residuals(tancova2))
+
+```
+
+For the first ANCOVA, the Q-Q indicates normality and no relation between residuals and fitted as desired. For the second ANCOVA, the Q-Q is slightly skewed, but likely indicates normality, and no relation between residuals and fitted as desired.
+
+We can also consider a pairwise interaction for "type" and "diameter" for the first model and a pairwise interaction for "type" and "height" for the second:
+
+```{r}
+
+tpw1 = lm(volume ~ type*diameter, data = treedata2)
+anova(tpw1)
+
+```
+
+As $p > 0.05$, the interaction between factor "type" and predictor "diameter" does not seem to have a significant effect.
+
+```{r}
+
+tpw2 = lm(volume ~ type*height, data = treedata2)
+anova(tpw2)
+
+```
+
+Similarly, as $p > 0.05$, the interaction between factor "type" and predictor "height" does not seem to have a significant effect. We can conclude that the influence of both diameter and height is similar for both types.
+
+### Section c
+
+As concluded in section (b), we found no significant indicator that there was any interaction effect. We will thus analyze a purely additive model.
+
+```{r}
+
+tadd = lm(volume ~ diameter + height + type, data = treedata2)
+drop1(tadd, test = "F")
+
+```
+
+This further confirms that factor "type" is not significant, so we can continue with an additive model without this factor.
+
+```{r}
+
+tadd2 = lm(volume ~ diameter + height, data = treedata2)
+drop1(tadd2, test = "F")
+summary(tadd2)
+
+```
+
+Our new model further indicates significance for both diameter and height and has a very high R-squared. Notably, we now have fewer variables, making this high R-squared more relevant.
+
+```{r}
+
+par(mfrow=c(1, 2))
+qqnorm(residuals(tadd2)); plot(fitted(tadd2), residuals(tadd2))
+
+```
+
+Diagnostics mostly indicate normality in the Q-Q plot, albeit slightly skewed. Fitted vs residuals do not show a clear relation either. We believe the model assumptions to be valid.
+
+In conclusion, we can assume that the factor "type" does not affect response value "volume" in a significant fashion. However, both explanatory variables "diameter" and "height" do have a significant impact, with diameter having the heaviest weight with 4.4 while height has 0.42.
+
+We can now predict the overall average diameter and height with the following linear regression model: $$volume = -60.61 + 4.4 * diameter + 0.42 * height$$
+
+```{r}
+
+meand <- mean(treedata2$diameter)
+meanh <- mean(treedata2$height)
+overallmean <-  data.frame(diameter=c(meand), height=c(meanh))
+predict(tadd2, overallmean, interval = "confidence")
+
+```
+
+We predict the volume of the overall average tree to be 31.15 and have a 95% CI of [30.34, 31.96].
+
+### Section d
+
+The two explanatory variables that thus far were relevant were diameter and height, therefore we can drop type as a consideration.
+
+A possible transformation would be considering a tree as a cylindrical object. A cylinder's volume can be calculated as $V=π * r2 * h$ where radius squared is the same as diameter. We apply this transformation to the explanatory variables and use this for the basis of a new model:
+
+```{r}
+
+treedata2$volnew <- pi * treedata2$diameter * treedata2$height
+volmodel <- lm(volume ~ volnew, data = treedata2)
+anova(volmodel)
+summary(volmodel)
+
+```
+
+This new explanatory variable has a significant effect as $p < 0.05$ and an R-squared of 0.9357 which is slightly lower than previous models, but an argument can be made that by reducing to one variable it is more reliable and better explains the data.
+
+**Diagnostics:**
+
+```{r}
+
+par(mfrow=c(1, 2))
+qqnorm(residuals(volmodel)); plot(fitted(volmodel), residuals(volmodel))
+
+```
+
+Q-Q plot indicates assumptions of normality of residuals holds, while no clear relation is shown in the fitted vs residuals plot.
+
+## Exercise 2: Expenditure on criminal activities
+
+```{r}
+
+data <- read.table(file="expensescrime.txt",header=TRUE)
+
+# We exclude the 1st column as it will not be part of our model.
+expcr <- data[,-1] 
+expcr
+expcrlm = lm(expend ~ bad + crime + lawyers + employ + pop, data=expcr) 
+
+```
+
+### Section a
+
+For this task, we need to make some graphical summaries of the data. Since we also need to investigate the problem of influence points and collinearity, we can utilize a number of graphical diagnostic tools here. One such tool we can use to check model quality is scatter plot, which can be used to observe linear relationships between explanatory variables:
+
+```{r}
+
+pairs(expcr) 
+
+```
+
+Based on this scatter plot, we can observe linear relationships between explanatory variables: *bad* and *lawyers*, *bad* and *employ*, *bad* and *pop*, *lawyers* and *employ*, *lawyers* and *pop*, *employ* and *pop*.
+
+Collinearity is the problem of linear relations between **explanatory variables.** Hence we do not mention any linear relationships between the response variable, *expend*. On the other hand, we include every single pair that corresponds to a straight line in a scatter plot as they carry the same information. Based on the above list, we can conclude that our model most definitely suffers from the collinearity problem.
+
+To really make sure that we are dealing with this problem, we should also compute the variance inflation factors (VIF) of the explanatory variables:
+
+```{r}
+
+library(car); vif(expcrlm)
+
+```
+
+Rule of thumb suggests that if the VIF of an explanatory variable is larger than 5, then that variable is a linear combination of other variables. Here, we see that except the variable *crime*, all the other variables have VIF values larger than 5. Notice that *crime* is also not part of the above reported pair of variables.
+
+In addition to the above graphical summary, we might want to identify the outlying values on a closer look. To do that, we can take a look at the box plot of the data or the QQ-plot of the residuals:
+
+```{r}
+
+par(mfrow=c(1,2))
+
+boxplot(expcr); qqnorm(residuals(expcrlm))
+
+```
+
+It looks there are quite many outliers outside most of the box plots, hence the data may be suffering from inconsistency. Moreover, from the above QQ-plot we can identify quite a number of outliers e.g. the data point that is furthest to the right appears to behave vastly different than the others.
+
+Let us now study the effect of the influence points in our data. To do that, we must compute and plot the Cook's distances of the data points in the model:
+
+```{r}
+
+round(cooks.distance(expcrlm),3)
+
+```
+
+```{r}
+
+plot(cooks.distance(expcrlm),type="b")
+
+```
+
+Rule of thumb suggests that if the Cook's distance of a data point is larger than 1, it shall be considered an influence point. Thus, based on the above computations, we conclude that data points with the indexes 5,8,35,44 are influence points.
+
+### Section b
+
+In this section, we need to use the step-up method to come up with a model with the best choice of explanatory variables. However, in order to perform a better statistical analysis overall, we could remove the influence points we identified in the previous section from the data set:
+
+```{r}
+
+new_expcr <- expcr[-c(5, 8, 35, 44), ]
+new_expcr
+
+```
+
+Now we can proceed with the step-up strategy. To do that, we must start with a background model and work our ways towards the full model by adding one new variable that yields the maximum increase in R^2^ compared to other potential variables.
+
+#### Adding the first variable:
+
+```{r}
+
+summary(lm(expend ~ bad, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ crime, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ lawyers, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ pop, data=new_expcr))
+
+```
+
+According to the above summaries of 5 different models, the addition of variable *employ* would yield the maximum increase in R^2^ compared to the other variables. Moreover, we observe that the p-value reserved for *employ* is significantly smaller than 0.05. Hence we decide to include ***employ*** in the model as our first variable.
+
+#### Adding another variable:
+
+```{r}
+
+summary(lm(expend ~ employ + bad, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + crime, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + lawyers, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + pop, data=new_expcr))
+
+```
+
+According to the above summaries of 4 new models, the addition of variable *crime* would yield the maximum increase in R^2^ compared to the other variables. Moreover, we observe that the p-value reserved for *crime* is smaller than 0.05. Hence we decide to include ***crime*** in the model as our next variable.
+
+#### Adding another variable:
+
+```{r}
+
+summary(lm(expend ~ employ + crime + bad, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + crime + lawyers, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + crime + pop, data=new_expcr))
+
+```
+
+According to the above summaries of 3 new models, the addition of variable *pop* would yield the maximum increase in R^2^ compared to the other variables. Moreover, we observe that the p-value reserved for *pop* is significantly smaller than 0.05. Hence we decide to include ***pop*** in the model as our next variable.
+
+#### Adding another variable:
+
+```{r}
+
+summary(lm(expend ~ employ + crime + pop + bad, data=new_expcr))
+
+```
+
+```{r}
+
+summary(lm(expend ~ employ + crime + pop + lawyers, data=new_expcr))
+
+```
+
+According to the above summaries of 2 new models, the addition of variable *lawyers* would yield the maximum increase in R^2^ compared to the other variables. However, we observe that the p-value reserved for *lawyers* is slightly larger than 0.05. Hence we decide to **not** include ***lawyers*** in the model as our next variable.
+
+At first glance, our resulting model would have 3 explanatory variables: *employ*, *crime* and *pop*. However, based on our findings from Section a, the variables *employ* and *pop* exhibit a linear relationship. Hence, in order to eliminate the collinearity problem, we must remove one of them from the model. Let us remove the last added variable *pop* from the model (Note that this is an ad-hoc choice.). Now we can compute the variance inflation factors (VIF) of the resulting variables to see if the problem is resolved:
+
+```{r}
+
+new_expcrlm = lm(expend ~ employ + crime, data=new_expcr)
+vif(new_expcrlm)
+
+```
+
+Rule of thumb suggests that if the VIF of an explanatory variable is larger than 5, then that variable is a linear combination of other variables. Here, we see that all the variables have VIF values smaller than 5. Thus our the resulting model would be:
+
+> expend = -1.651e+02+ 3.623e-02\*employ + 4.313e-02\*crime + error
+
+We can now check the model assumption for the resulting model:
+
+```{r}
+
+par(mfrow=c(1,2))
+
+plot(residuals(new_expcrlm),fitted(new_expcrlm)); qqnorm(residuals(new_expcrlm))
+
+```
+
+We see that the scatter plot of residuals against the observed and fitted values is all over the place as intended. Furthermore we can infer that the QQ-plot has vastly improved compared to the model plotted in Section a: the plot now resembles a straight line much more, despite a few number of existing outliers.
+
+### Section c
+
+For this section of the exercise, we need to construct a 95% prediction interval for our new model. The x-values given for this task would be bad=50, crime=5000, lawyers=5000, employ=5000 and pop=5000, which we should use the necessary ones out of them:
+
+```{r}
+
+newxdata=data.frame(crime=5000, employ=5000)
+predict(new_expcrlm,newxdata,interval="prediction") 
+ 
+# Note that default significance level of interval is 0.95.
+
+```
+
+-   **Can we improve this interval?** We know that a narrower interval is considered an improvement. Since the prediction interval is known to be always larger than the confidence interval, we can switch to constructing a confidence interval rather than a prediction interval. Moreover, we can also lower the significance level of the interval, which would result in a narrower interval.
+
+### Section d
+
+In this section, we will apply the LASSO method to choose the relevant variables for our model. To do that, we need to install the R-package glmnet first. Then, we proceed to define the predictors and the response variable for our model:
+
+```{r}
+
+library(glmnet)
+x=as.matrix(new_expcr[,-1]) # remove response variable = expend
+y=new_expcr[,1] # only response variable = expend
+
+```
+
+We then reserve 2/3 of the rows for the train set:
+
+```{r}
+
+train=sample(1:nrow(x),0.67*nrow(x)) # train by using 2/3 of the x rows 
+x.train=x[train,]; y.train=y[train]  # data to train
+x.test=x[-train,]; y.test = y[-train] # data to test the prediction quality
+
+```
+
+For the next step, we perform cross-validation to choose the lambda value:
+
+```{r}
+
+lasso.model=glmnet(x.train,y.train,alpha=1) # alpha=1 for lasso
+lasso.cv=cv.glmnet(x.train,y.train,alpha=1,type.measure="mse")
+lambda.1se=lasso.cv$lambda.1se; lambda.1se 
+coef(lasso.model,s=lasso.cv$lambda.1se)
+
+```
+
+Judging by the results above, we can observe the explanatory variable *crime* might get disappeared due to the penalization of the model complexity. Note that, LASSO method might keep collinear variables, such as *lawyers* and *employ*, in the model like it does here.
+
+Finally, we obtain the mean squared error value for the predicted test rows by doing the following:
+
+```{r}
+
+lasso.pred=predict(lasso.model,s=lambda.1se,newx=as.matrix(x.test))
+mse.lasso=mean((y.test-lasso.pred)^2); mse.lasso
+
+```
+
+We can now compare the resulting model with the model we obtained in Section b:
+
+```{r}
+
+# Prediction by using the linear model
+
+lm.model=lm(expend ~ employ + crime,data=new_expcr,subset=train) # fit linear model on the train data
+y.predict.lm=predict(lm.model,newdata=new_expcr[-train,]) # predict for the test rows
+mse.lm=mean((y.test-y.predict.lm)^2); mse.lm # prediction quality by the linear mode
+
+```
+
+Although we know that a new run delivers a new model because of a new train set, the model we obtained in Section b might still outperform the one we applied LASSO method on. This is because in the beginning, we had few explanatory variables to use in the construction of our model. Furthermore, the step-up method ended up constructing a much simpler model (even before addressing collinearity). Thus, to observe that LASSO method can outperform the step-down and step-up approaches, we must perform this comparative analysis over a data set with too many explanatory variables.
+
+## Exercise 3: Titanic
+
+### Section a
+
+```{r}
+
+data <- read.table(file="titanic.txt",header=TRUE)
+summary(data)
+
+```
+
+We check the data with summary function to see what could be of interest to display in graphics or tables. We see that there are 557 missing 'Age' values.The most important factor here is 'Survived'; the mean of 0.34 would mean that around third of the passengers survived, however, this list is not complete as there are only 1313 entries out of 2224 total passengers.
+
+```{r}
+
+
+tab1 <- table(data$Survived, data$PClass)
+tab2 <- table(data$Survived, data$Sex)
+
+par(mfrow=c(2,2))
+
+barplot(tab1, beside = TRUE, main="Survival by Passenger Class", 
+        xlab="Passenger Class", ylab="Count", 
+        col=c("red", "green"), ylim=c(0,700))
+
+barplot(tab2, beside = TRUE, main="Survival by Sex", 
+        xlab="Passenger Sex", ylab="Count", 
+        col=c("red", "green"), ylim=c(0,800))
+
+hist(data$Age[data$Survived==1], beside = TRUE, main="Survival by Age", 
+        xlab="Passenger Age", ylab="Count", col="green", ylim=c(0,60))
+
+legend("topright", legend=c("Survived", "Perished"), fill=c("green", "red"), pt.cex = 1.5, bty = "n")
+
+hist(data$Age[data$Survived==0], beside = TRUE, main="Survival by Age", 
+        xlab="Passenger Age", ylab="Count", col="red", ylim=c(0,200))
+
+
+```
+
+The plots tell us that most of those who perished were 3rd class passengers. Many more males died than females. Most of those who survived were around ages 20 and 30. Around the same ages most people perished too.
+
+```{r}
+
+tot_survived <- xtabs(Survived ~ PClass + Sex, data=data)
+tot_survived
+
+round(tot_survived/xtabs(~PClass+ Sex, data=data), 2)
+
+```
+
+```{r}
+
+model <- glm(Survived ~ PClass + Age + Sex, data=data, family="binomial")
+summary(model)$coefficients
+
+```
+
+Since all the probabilities of the variables are above zero, they are significant and can't be thrown out. The odds can be calculated using the estimate of this table like this: exp(3.76 + PClass2nd \* -1.292 + PClass3rd \* -2.521 + Age \* -0.039 + Sexmale \* -2.631) PClass and Sexmale are binary variables, while Age is continuous.
+
+```{r}
+
+# odds that a female 1st class passenger survived
+exp(3.76)
+
+# odds that a 2nd class passenger survived
+exp(3.76 + -1.292)
+
+# odds that someone who is 30yo survived
+exp(3.76 + 30*-0.039)
+
+# odds that a male 3rd class passenger survived
+exp(3.76 + -2.521 + -2.631)
+
+```
+
+The above are some examples that can be calculated. The odds to survive for a first class female passenger are quite high, while it is low for a 3rd class male passenger.
+
+### Section b
+
+```{r}
+
+glm2 <- glm(Survived~Age*PClass, data=data, family=binomial)
+anova(glm2, test="Chisq")
+
+glm3 <- glm(Survived~Age*Sex, data=data, family=binomial)
+anova(glm3, test="Chisq")
+
+```
+
+> $H_0$: All βs are equal.
+>
+> $H_1$: All βs are not equal.
+
+We study the interaction between Age and PClass. Only the last p-value is relevant, which is 0.56 and higher than significance level 0.05, therefore we do not reject null hypothesis, meaning that there is no interaction between Age and PClass. We do the same for Age and Sex: p-value is 5.645e-07, which is lower than 0.05, therefore we do reject null hypothesis, meaning that there is an interaction between Age and Sex.
+
+We add this interaction to our model from Section a:
+
+```{r}
+
+model <- glm(Survived ~ PClass + Age + Sex + Age*Sex, data=data, family="binomial")
+summary(model)$coefficients
+
+```
+
+After adding interaction term to the original model, we get new p-values. This time, age and sex have p-values that are higher than our significance level, therefore these factors are no longer significant.
+
+The new model is:
+
+```{r}
+
+model <- glm(Survived ~ PClass + Age:Sex, data=data, family="binomial")
+summary(model)$coefficients
+
+```
+
+And finally the probability of survival for each factor:
+
+```{r}
+
+age <- 55
+pclass <- c("1st", "2nd", "3rd")
+sex <- c("female", "male")
+
+df <- expand.grid(PClass=pclass, Sex=sex, Age=age)
+
+results = round(predict(model, newdata=df, type="response"), 3)
+
+cbind(df, Survival_Prob=results)
+
+```
+
+### Section c
+
+To predict survival status and measure the quality of the prediction we could use a subset of the data as training data and another subset as a testing data. We could train the model using training data with glm(). Once the model is trained, we could make predictions with predict(). To measure the quality of the predictions we could use part of the testing data (without survival status) to predict and check how many matches we get. Then we divide the matches by a total number of passengers in the testing data, and we get a proportion of correct predictions. The closer this number is to 1 the higher the quality of the prediction.
+
+### Section d
+
+We use χ2-test to test for passenger class effect on the survival status, and Fisher's exact test to test for sex effect on the survival status, since Fisher's test is more suitable for 2x2 tables.
+
+> $H_0$: Passenger class has no effect on survival status.
+
+```{r}
+
+cont_table1 <- table(data$Survived, data$PClass)
+cont_table2 <- table(data$Survived, data$Sex)
+
+chisq.test(cont_table1)
+fisher.test(cont_table2)
+
+
+```
+
+Both tests indicate that both passenger class and sex have a significant effect on survival status.
+
+### Section e
+
+Both approaches are used to test for different things. A contingency table is good for determining whether there is a relationship between two variables, like testing whether two factors are independent.
+
+-   **Advantages of χ2-test:** easy to use, non-parametric (no assumption about distribution)
+
+-   **Disadvantages of χ2-test:** needs a larger sample size, 80% of expected cell counts should be above 5, categorical data only.
+
+-   **Advantages of Fisher's Exact Test:** sample size can be relatively small, non-parametric (no assumption about distribution), robust against the violations of assumptions.
+
+-   **Disadvantages of Fisher's Exact Test:** 2x2 table only, is is less likely to reject null hypothesis compared to χ2-test.
+
+Logistic regression is used to model the relationship between response variable and predictor variable and can be used to predict the probability of a certain outcome.
+
+-   **Advantages of logistic regression:** wide range of predictor variables, such as continuous, categorical, ordinal, robust against outliers, odds ratios easy to interpret.
+-   **Disadvantages of logistic regression:** assumes linear relationship between predictor and outcome variables.
+
+Therefore, no, the approach in d) is not wrong, it is just testing for different things.
+
+## Exercise 4: Military coups
+
+### Section a
+
+> $H_0$: Any subset of the βs is equal to 0.
+
+```{r}
+
+coups <- read.table("coups.txt", header = TRUE)
+coups$pollib <- as.factor(coups$pollib) # transform into factor
+fit <- glm(miltcoup ~ oligarchy + pollib + parties + pctvote + popn + size +
+             numelec + numregim, data = coups, family = "poisson")
+summary(fit)
+
+
+```
+
+From the output, we can see that oligarchy, political liberalization (pollib) and parties have a significant effect on the number of military coups, while other variables, such as size of the country and total number of legislative and presidential elections (numelec) do not have a significant effect.
+
+### Section b
+
+In this section, we were asked to use the step-down approach to reduce the number of explanatory variables. To do that, we start by inspecting the summary of the full model (all explanatory variables included):
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties + pctvote + popn + size +
+              numelec + numregim, family=poisson, data=coups))
+
+```
+
+We see that variable *numelec* has the biggest p-value and not significant (\< 0.05). Hence we remove it from the model and proceed with the next step of the method:
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties + pctvote + popn + size +
+              numregim, family=poisson, data=coups))
+
+```
+
+We see that variable *numregim* has the biggest p-value and not significant (\< 0.05). Hence we remove it from the model and proceed with the next step of the method:
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties + pctvote + popn + size,
+            family=poisson, data=coups))
+
+```
+
+We see that variable *size* has the biggest p-value and not significant (\< 0.05). Hence we remove it from the model and proceed with the next step of the method:
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties + pctvote + popn, 
+            family=poisson, data=coups))
+
+```
+
+We see that variable *popn* has the biggest p-value and not significant (\< 0.05). Hence we remove it from the model and proceed with the next step of the method:
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties + pctvote,
+            family=poisson,data=coups))
+
+```
+
+We see that variable *pctvote* has the biggest p-value and not significant (\< 0.05). Hence we remove it from the model and proceed with the next step of the method:
+
+```{r}
+
+summary(glm(miltcoup ~ oligarchy + pollib + parties, family=poisson, data=coups)) # final model
+
+```
+
+We see that all remaining variables are significant so we stop the procedure. Consequently, the resulting model would include the following explanatory variables: *oligarchy*, *pollib* and *parties* Note that this is the exact same result that we obtained in Section a, where we deemed these 3 variables as significant.
+
+### Section c
+
+```{r}
+
+is.factor(coups$pollib) # double-check it is a factor
+mean(coups$parties); mean(coups$oligarchy) # which gives 5.22 and 17.08
+coupnew <- data.frame(pollib=c("0", "1", "2"), oligarchy=c(5.22, 5.22, 5.22), 
+                      parties=c(17.08, 17.08, 17.08))
+modelf <- glm(miltcoup ~ oligarchy + pollib + parties, family=poisson, data=coups)
+predict(modelf, coupnew, type = "response")
+
+```
+
+Our model predicts that the amount of expected coups decreases as the level of political liberalization increases, with pollib = 0 having 2.91 successful coups, pollib = 1 having 1.77 successful coups, and pollib = 2 having less than 1 political coup.
